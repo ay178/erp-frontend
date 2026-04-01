@@ -3105,6 +3105,7 @@ const PAGE_TITLES = {
 function App() {
   const [user, setUser] = useState(null);
   const [activeView, setActiveView] = useState('dashboard');
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const token = user?.token || localStorage.getItem('erp_token') || '';
 
   const renderContent = () => {
@@ -3124,8 +3125,6 @@ function App() {
   };
 
   if (!user) return <LoginScreen onLogin={(u)=>{setUser(u);setActiveView('dashboard');}}/>;
-
-  const [sidebarOpen, setSidebarOpen] = useState(false);
   return (
     <div className="app-layout">
       {/* Mobile overlay */}
