@@ -2109,9 +2109,26 @@ function BranchManagementPage() {
     setLoading(true);
     try {
       if(modal==='add-student') {
-        const newStudent = await api('/api/students','POST',{...studentForm,branch:branch.code},token);
+        // Step 1: Student ka user account banao — Roll No hi password hoga
+        try {
+          await api('/api/auth/register','POST',{
+            name: studentForm.name,
+            email: studentForm.email,
+            password: studentForm.rollNo,
+            role: 'student'
+          });
+        } catch(e) {
+          // Already exists — theek hai
+          console.log('User already exists:', e.message);
+        }
+        // Step 2: Student record MongoDB mein save karo
+        const newStudent = await api('/api/students','POST',{
+          ...studentForm,
+          branch: branch.code,
+          password: studentForm.rollNo
+        }, token);
         setBranchStudents(p=>({...p,[branch.code]:[...(p[branch.code]||[]),newStudent]}));
-        showToast('✅ Student add ho gaya! Welcome email bhi gayi 📧');
+        showToast('✅ Student add ho gaya! Email mein login details bhi gayi 📧');
       } else {
         const updated = await api('/api/students/'+studentForm._id,'PUT',studentForm,token);
         setBranchStudents(p=>({...p,[branch.code]:p[branch.code].map(s=>s._id===updated._id?updated:s)}));
