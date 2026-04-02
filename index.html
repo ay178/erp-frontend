@@ -1048,8 +1048,8 @@ function TeacherDashboard({ user }) {
         </div>
         <div className="card">
           <div className="card-header"><div className="card-title">My Subjects</div></div>
-          {user.subjects.map((s,i)=>(
-            <div key={s} style={{display:'flex',alignItems:'center',gap:14,padding:'10px 0',borderBottom:i<user.subjects.length-1?'1px solid var(--border)':'none'}}>
+          {(user.subjects||['Data Structures','Algorithms','DBMS']).map((s,i)=>(
+            <div key={s} style={{display:'flex',alignItems:'center',gap:14,padding:'10px 0',borderBottom:i<(user.subjects||[]).length-1?'1px solid var(--border)':'none'}}>
               <div style={{width:40,height:40,borderRadius:9,background:['var(--accent-bg)','var(--purple-bg)','var(--green-bg)'][i],display:'flex',alignItems:'center',justifyContent:'center',color:['var(--accent)','var(--purple)','var(--green)'][i],fontWeight:700,fontSize:13}}>
                 {s.slice(0,2).toUpperCase()}
               </div>
