@@ -255,6 +255,17 @@ const { useState, useEffect, useCallback } = React;
 // ─── Backend API URL ─────────────────────────────────────────────────────────
 const API_URL = 'https://college-erp-hf1g.onrender.com';
 
+// Backend wake-up — Render free plan ke liye
+const wakeUpBackend = async () => {
+  try {
+    await fetch(API_URL + '/');
+    console.log('Backend is awake!');
+  } catch(e) {
+    console.log('Waking up backend...');
+  }
+};
+wakeUpBackend(); // Page load hote hi backend jaagta hai
+
 // ─── API Helper ───────────────────────────────────────────────────────────────
 const api = async (endpoint, method = 'GET', body = null, token = null) => {
   const headers = { 'Content-Type': 'application/json' };
@@ -358,8 +369,16 @@ function LoginScreen({ onLogin }) {
 
   const [loading, setLoading] = useState(false);
 
+  const [serverStatus, setServerStatus] = useState('checking');
+
+  useEffect(() => {
+    fetch(API_URL + '/')
+      .then(() => setServerStatus('ready'))
+      .catch(() => setServerStatus('slow'));
+  }, []);
+
   const handleLogin = async () => {
-    if (!email || !password) { setError('Email aur password dono bharо!'); return; }
+    if (!email || !password) { setError('Email aur password dono bharo!'); return; }
     setLoading(true);
     setError('');
     try {
@@ -410,7 +429,24 @@ function LoginScreen({ onLogin }) {
           <input className="form-input" type="password" placeholder="Enter your password" value={password} onChange={e=>{setPassword(e.target.value);setError('');}} onKeyDown={e=>e.key==='Enter'&&handleLogin()} />
         </div>
         {error && <div style={{color:'var(--red)',fontSize:13,marginBottom:8}}>{error}</div>}
-        <button className="login-btn" onClick={handleLogin} disabled={loading}>{loading ? "Logging in..." : "Sign In →"}</button>
+        {serverStatus === 'checking' && (
+          <div style={{fontSize:12,color:'var(--amber)',marginBottom:8,textAlign:'center',padding:'6px 10px',background:'var(--amber-bg)',borderRadius:7}}>
+            ⏳ Server start ho raha hai — thoda wait karo...
+          </div>
+        )}
+        {serverStatus === 'slow' && (
+          <div style={{fontSize:12,color:'var(--amber)',marginBottom:8,textAlign:'center',padding:'6px 10px',background:'var(--amber-bg)',borderRadius:7}}>
+            ⚡ Server wake up ho raha hai — pehli baar thoda slow hoga
+          </div>
+        )}
+        {serverStatus === 'ready' && (
+          <div style={{fontSize:12,color:'var(--green)',marginBottom:8,textAlign:'center',padding:'6px 10px',background:'var(--green-bg)',borderRadius:7}}>
+            ✅ Server ready hai — login karo!
+          </div>
+        )}
+        <button className="login-btn" onClick={handleLogin} disabled={loading}>
+          {loading ? "⏳ Logging in... please wait..." : "Sign In →"}
+        </button>
 
         <div className="demo-creds">
           <div className="demo-title">Demo Accounts</div>
@@ -2839,64 +2875,435 @@ function FeeMgmtPage() {
 // 💳 FEE DETAILS — Student View
 // ═══════════════════════════════════════════════════════════════════
 function FeeDetailsPage({ user }) {
-  const myFee = FEE_DATA_INIT.find(f => f.rollNo === 'CS2023001') || FEE_DATA_INIT[0];
-  const pct = Math.round(myFee.paid / myFee.total * 100);
+  const [feeData, setFeeData] = useState({
+    name: user?.name || 'Student',
+    rollNo: 'CS2023001',
+    semester: '4th Semester',
+    branch: 'Computer Science',
+    academicYear: '2024-25',
+    totalFee: 85000,
+    paid: 42500,
+    due: 42500,
+    dueDate: '30 April 2025',
+    status: 'pending',
+    breakdown: [
+      { label: 'Tuition Fee',    amount: 50000 },
+      { label: 'Lab Fee',        amount: 10000 },
+      { label: 'Library Fee',    amount: 5000  },
+      { label: 'Sports Fee',     amount: 3000  },
+      { label: 'Exam Fee',       amount: 7000  },
+      { label: 'Development Fee',amount: 10000 },
+    ],
+    payments: [
+      { date:'2025-01-10', amount:42500, mode:'Online', receipt:'RCP2025001', status:'paid' },
+    ]
+  });
+
+  const [payModal, setPayModal]     = useState(false);
+  const [payAmount, setPayAmount]   = useState('');
+  const [payMode, setPayMode]       = useState('upi');
+  const [upiId, setUpiId]           = useState('');
+  const [cardNo, setCardNo]         = useState('');
+  const [cardName, setCardName]     = useState('');
+  const [cardExp, setCardExp]       = useState('');
+  const [cardCvv, setCardCvv]       = useState('');
+  const [processing, setProcessing] = useState(false);
+  const [receiptModal, setReceiptModal] = useState(null);
+  const [toast, setToast]           = useState('');
+
+  const showToast = (msg) => { setToast(msg); setTimeout(()=>setToast(''),4000); };
+  const pct = Math.round((feeData.paid / feeData.totalFee) * 100);
+
+  const handlePayment = async () => {
+    if (!payAmount || isNaN(payAmount) || +payAmount <= 0) {
+      alert('Sahi amount enter karo!'); return;
+    }
+    if (+payAmount > feeData.due) {
+      alert('Amount Rs.'+feeData.due.toLocaleString()+' se zyada nahi ho sakta!'); return;
+    }
+    if (payMode === 'upi' && !upiId) { alert('UPI ID enter karo!'); return; }
+    if (payMode === 'card' && (!cardNo || !cardName || !cardExp || !cardCvv)) {
+      alert('Card ki sab details bharo!'); return;
+    }
+    setProcessing(true);
+
+    // Payment simulate karo — 2 second processing
+    await new Promise(r => setTimeout(r, 2000));
+
+    const receiptNo = 'RCP' + Date.now().toString().slice(-6);
+    const newPayment = {
+      date: new Date().toISOString().split('T')[0],
+      amount: +payAmount,
+      mode: payMode === 'upi' ? 'UPI' : payMode === 'card' ? 'Card' : 'Net Banking',
+      receipt: receiptNo,
+      status: 'paid',
+      upiId: payMode === 'upi' ? upiId : null,
+    };
+
+    const newPaid = feeData.paid + +payAmount;
+    const newDue  = feeData.due - +payAmount;
+
+    setFeeData(p => ({
+      ...p,
+      paid: newPaid,
+      due: newDue,
+      status: newDue <= 0 ? 'paid' : 'pending',
+      payments: [newPayment, ...p.payments],
+    }));
+
+    setProcessing(false);
+    setPayModal(false);
+    setPayAmount(''); setUpiId(''); setCardNo(''); setCardName(''); setCardExp(''); setCardCvv('');
+    setReceiptModal(newPayment);
+    showToast('✅ Payment successful! Receipt email pe bhi bhej di gayi 📧');
+
+    // Backend ko email bhejne ke liye call karo
+    try {
+      await fetch(API_URL + '/api/fees/receipt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (localStorage.getItem('erp_token')||'') },
+        body: JSON.stringify({
+          studentName: feeData.name,
+          email: user?.email || '',
+          rollNo: feeData.rollNo,
+          amount: +payAmount,
+          receipt: receiptNo,
+          mode: newPayment.mode,
+          semester: feeData.semester,
+          date: newPayment.date,
+          totalFee: feeData.totalFee,
+          totalPaid: newPaid,
+          totalDue: newDue,
+        })
+      });
+    } catch(e) { console.log('Email send failed:', e.message); }
+  };
+
   return (
     <div>
-      <div className="grid-2" style={{marginBottom:20}}>
-        <div className="card">
-          <div className="card-header"><div className="card-title">💳 Fee Summary</div></div>
-          <div style={{display:'flex',flexDirection:'column',gap:12}}>
-            {[
-              {label:'Total Fee',   value:'Rs.'+myFee.total.toLocaleString(), color:'var(--text)'},
-              {label:'Amount Paid', value:'Rs.'+myFee.paid.toLocaleString(),  color:'var(--green)'},
-              {label:'Amount Due',  value:myFee.due>0?'Rs.'+myFee.due.toLocaleString():'Nil', color:myFee.due>0?'var(--red)':'var(--green)'},
-              {label:'Due Date',    value:myFee.dueDate, color:'var(--text)'},
-            ].map(item=>(
-              <div key={item.label} style={{display:'flex',justifyContent:'space-between',padding:'10px 0',borderBottom:'1px solid var(--border)'}}>
-                <span style={{fontSize:14,color:'var(--text2)'}}>{item.label}</span>
-                <span style={{fontSize:14,fontWeight:600,color:item.color}}>{item.value}</span>
-              </div>
-            ))}
+      {/* Toast */}
+      {toast && (
+        <div style={{position:'fixed',top:20,right:20,zIndex:999,background:'#16a34a',color:'white',
+          padding:'14px 20px',borderRadius:10,fontSize:14,fontWeight:600,boxShadow:'0 4px 16px rgba(0,0,0,0.18)',maxWidth:360}}>
+          {toast}
+        </div>
+      )}
+
+      {/* Stats */}
+      <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:16,marginBottom:20}}>
+        <div className="stat-card">
+          <div className="stat-label">Total Fee</div>
+          <div className="stat-value">₹{feeData.totalFee.toLocaleString()}</div>
+          <div className="stat-sub" style={{color:'var(--text3)'}}>{feeData.semester}</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-label">Paid</div>
+          <div className="stat-value" style={{color:'var(--green)'}}>₹{feeData.paid.toLocaleString()}</div>
+          <div className="stat-sub"><span className="stat-badge badge-green">{pct}% complete</span></div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-label">Due</div>
+          <div className="stat-value" style={{color:feeData.due>0?'var(--red)':'var(--green)'}}>
+            {feeData.due>0 ? '₹'+feeData.due.toLocaleString() : 'Nil ✓'}
           </div>
-          <div style={{marginTop:16}}>
+          <div className="stat-sub"><span className={`stat-badge ${feeData.due>0?'badge-red':'badge-green'}`}>{feeData.due>0?'Due: '+feeData.dueDate:'Fully Paid!'}</span></div>
+        </div>
+      </div>
+
+      <div className="grid-2" style={{marginBottom:20}}>
+        {/* Fee Summary Card */}
+        <div className="card">
+          <div className="card-header">
+            <div className="card-title">💳 Fee Summary</div>
+            <span className={`chip ${feeData.status==='paid'?'badge-green':'badge-amber'}`}>
+              {feeData.status==='paid'?'✅ Fully Paid':'⏳ Pending'}
+            </span>
+          </div>
+
+          {/* Progress Bar */}
+          <div style={{marginBottom:16}}>
             <div style={{display:'flex',justifyContent:'space-between',marginBottom:6}}>
               <span style={{fontSize:13,color:'var(--text3)'}}>Payment Progress</span>
-              <span style={{fontSize:13,fontWeight:600,color:pct===100?'var(--green)':'var(--amber)'}}>{pct}%</span>
+              <span style={{fontSize:13,fontWeight:700,color:pct===100?'var(--green)':'var(--amber)'}}>{pct}%</span>
             </div>
-            <div className="progress-bar" style={{height:10}}>
-              <div className="progress-fill" style={{width:pct+'%',background:pct===100?'var(--green)':'var(--amber)'}}/>
+            <div style={{height:12,background:'var(--border)',borderRadius:99,overflow:'hidden'}}>
+              <div style={{height:'100%',width:pct+'%',background:pct===100?'var(--green)':'var(--amber)',borderRadius:99,transition:'width 0.5s'}}/>
             </div>
           </div>
-          {myFee.status==='paid' ? (
-            <div style={{marginTop:14,padding:'10px 14px',background:'var(--green-bg)',borderRadius:8,color:'var(--green)',fontWeight:600,fontSize:14}}>
-              🎉 Aapki puri fee jama ho gayi hai!
+
+          {/* Fee Details */}
+          {[
+            {label:'Student Name',  value:feeData.name},
+            {label:'Roll No',       value:feeData.rollNo},
+            {label:'Branch',        value:feeData.branch},
+            {label:'Semester',      value:feeData.semester},
+            {label:'Academic Year', value:feeData.academicYear},
+            {label:'Total Fee',     value:'₹'+feeData.totalFee.toLocaleString()},
+            {label:'Amount Paid',   value:'₹'+feeData.paid.toLocaleString(), green:true},
+            {label:'Amount Due',    value:feeData.due>0?'₹'+feeData.due.toLocaleString():'Nil', red:feeData.due>0, green:feeData.due<=0},
+            {label:'Due Date',      value:feeData.dueDate},
+          ].map(item=>(
+            <div key={item.label} style={{display:'flex',justifyContent:'space-between',padding:'9px 0',borderBottom:'1px solid var(--border)'}}>
+              <span style={{fontSize:13,color:'var(--text3)'}}>{item.label}</span>
+              <span style={{fontSize:13,fontWeight:600,color:item.green?'var(--green)':item.red?'var(--red)':'var(--text)'}}>{item.value}</span>
             </div>
+          ))}
+
+          {/* Pay Now Button */}
+          {feeData.due > 0 ? (
+            <button onClick={()=>setPayModal(true)}
+              style={{width:'100%',marginTop:16,padding:'13px',background:'var(--accent)',color:'white',
+                border:'none',borderRadius:10,fontSize:15,fontWeight:700,cursor:'pointer',
+                display:'flex',alignItems:'center',justifyContent:'center',gap:8}}>
+              💳 Pay Now — ₹{feeData.due.toLocaleString()}
+            </button>
           ) : (
-            <div style={{marginTop:14,padding:'10px 14px',background:'var(--amber-bg)',borderRadius:8,color:'var(--amber)',fontWeight:600,fontSize:14}}>
-              ⚠️ Rs.{myFee.due.toLocaleString()} abhi baki hai — jaldi jama karo!
+            <div style={{marginTop:16,padding:'12px',background:'var(--green-bg)',borderRadius:9,
+              textAlign:'center',color:'var(--green)',fontWeight:700,fontSize:15}}>
+              🎉 Puri fee jama ho gayi hai! Badhaai ho!
             </div>
           )}
         </div>
+
+        {/* Fee Breakdown */}
         <div className="card">
-          <div className="card-header"><div className="card-title">📋 Payment History</div></div>
-          {[
-            {date:'2025-01-10', amount:42500, mode:'Online', receipt:'RCP001'},
-            {date:'2025-02-15', amount:42500, mode:'Cash',   receipt:'RCP002'},
-          ].map((p,i)=>(
-            <div key={i} style={{display:'flex',alignItems:'center',gap:14,padding:'12px 0',borderBottom:'1px solid var(--border)'}}>
-              <div style={{width:36,height:36,borderRadius:9,background:'var(--green-bg)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:16}}>
-                💰
+          <div className="card-header"><div className="card-title">📊 Fee Breakdown</div></div>
+          {feeData.breakdown.map((item,i)=>(
+            <div key={i} style={{display:'flex',justifyContent:'space-between',alignItems:'center',
+              padding:'10px 0',borderBottom:i<feeData.breakdown.length-1?'1px solid var(--border)':'none'}}>
+              <div style={{display:'flex',alignItems:'center',gap:10}}>
+                <div style={{width:8,height:8,borderRadius:'50%',background:'var(--accent)'}}/>
+                <span style={{fontSize:14,color:'var(--text2)'}}>{item.label}</span>
               </div>
-              <div style={{flex:1}}>
-                <div style={{fontSize:14,fontWeight:500}}>Rs.{p.amount.toLocaleString()}</div>
-                <div style={{fontSize:12,color:'var(--text3)'}}>{p.date} · {p.mode} · {p.receipt}</div>
-              </div>
-              <span className="chip badge-green">✅ Paid</span>
+              <span style={{fontSize:14,fontWeight:600}}>₹{item.amount.toLocaleString()}</span>
             </div>
           ))}
+          <div style={{display:'flex',justifyContent:'space-between',marginTop:14,paddingTop:12,
+            borderTop:'2px solid var(--border)'}}>
+            <span style={{fontSize:15,fontWeight:700}}>Total</span>
+            <span style={{fontSize:15,fontWeight:700,color:'var(--accent)'}}>₹{feeData.totalFee.toLocaleString()}</span>
+          </div>
         </div>
       </div>
+
+      {/* Payment History */}
+      <div className="card">
+        <div className="card-header">
+          <div className="card-title">📋 Payment History</div>
+          <span className="chip badge-blue">{feeData.payments.length} transactions</span>
+        </div>
+        {feeData.payments.length === 0 ? (
+          <div style={{textAlign:'center',padding:32,color:'var(--text3)'}}>Koi payment nahi mili abhi tak</div>
+        ) : feeData.payments.map((p,i)=>(
+          <div key={i} style={{display:'flex',alignItems:'center',gap:14,padding:'14px 0',
+            borderBottom:i<feeData.payments.length-1?'1px solid var(--border)':'none'}}>
+            <div style={{width:42,height:42,borderRadius:10,background:'var(--green-bg)',
+              display:'flex',alignItems:'center',justifyContent:'center',fontSize:20,flexShrink:0}}>
+              💰
+            </div>
+            <div style={{flex:1}}>
+              <div style={{fontSize:15,fontWeight:600}}>₹{p.amount.toLocaleString()}</div>
+              <div style={{fontSize:12,color:'var(--text3)',marginTop:3}}>
+                📅 {p.date} &nbsp;·&nbsp; {p.mode} &nbsp;·&nbsp; 🧾 {p.receipt}
+                {p.upiId && <span> &nbsp;·&nbsp; UPI: {p.upiId}</span>}
+              </div>
+            </div>
+            <div style={{display:'flex',gap:8,alignItems:'center'}}>
+              <span className="chip badge-green">✅ Paid</span>
+              <button onClick={()=>setReceiptModal(p)}
+                style={{padding:'5px 12px',border:'1px solid var(--border)',borderRadius:7,
+                  background:'var(--surface)',cursor:'pointer',fontSize:12,color:'var(--text2)'}}>
+                🧾 Receipt
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* ── PAYMENT MODAL ── */}
+      {payModal && (
+        <div className="modal-overlay" onClick={()=>!processing&&setPayModal(false)}>
+          <div className="modal" style={{width:480}} onClick={e=>e.stopPropagation()}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
+              <div className="modal-title" style={{margin:0}}>💳 Fee Payment</div>
+              {!processing && <button onClick={()=>setPayModal(false)} style={{border:'none',background:'none',cursor:'pointer',color:'var(--text3)'}}><Icon name="close" size={18}/></button>}
+            </div>
+
+            {processing ? (
+              <div style={{textAlign:'center',padding:'40px 0'}}>
+                <div style={{fontSize:40,marginBottom:16}}>⏳</div>
+                <div style={{fontSize:16,fontWeight:600,color:'var(--text)'}}>Payment Processing...</div>
+                <div style={{fontSize:13,color:'var(--text3)',marginTop:8}}>Kripya wait karo — page band mat karo!</div>
+                <div style={{marginTop:20,height:6,background:'var(--border)',borderRadius:99,overflow:'hidden'}}>
+                  <div style={{height:'100%',width:'70%',background:'var(--accent)',borderRadius:99,animation:'progress 2s ease-in-out'}}/>
+                </div>
+              </div>
+            ) : (
+              <>
+                {/* Amount */}
+                <div style={{background:'var(--accent-bg)',border:'1px solid var(--accent-border)',borderRadius:10,padding:'14px 16px',marginBottom:16}}>
+                  <div style={{fontSize:12,color:'var(--accent)',marginBottom:4}}>Outstanding Amount</div>
+                  <div style={{fontSize:24,fontWeight:800,color:'var(--accent)'}}>₹{feeData.due.toLocaleString()}</div>
+                </div>
+
+                <div style={{marginBottom:14}}>
+                  <label className="form-label">Pay Amount (₹) *</label>
+                  <input className="form-input" type="number" min="1" max={feeData.due}
+                    placeholder={'Max: ₹'+feeData.due.toLocaleString()}
+                    value={payAmount} onChange={e=>setPayAmount(e.target.value)}/>
+                  <div style={{display:'flex',gap:8,marginTop:8}}>
+                    {[feeData.due, Math.round(feeData.due/2), 10000].map(amt=>(
+                      <button key={amt} onClick={()=>setPayAmount(amt.toString())}
+                        style={{flex:1,padding:'6px',border:'1px solid var(--accent-border)',borderRadius:7,
+                          background:'var(--accent-bg)',cursor:'pointer',fontSize:12,color:'var(--accent)',fontWeight:600}}>
+                        ₹{amt.toLocaleString()}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Payment Mode */}
+                <div style={{marginBottom:16}}>
+                  <label className="form-label">Payment Mode *</label>
+                  <div style={{display:'flex',gap:8}}>
+                    {[['upi','📱 UPI'],['card','💳 Card'],['netbanking','🏦 Net Banking']].map(([mode,label])=>(
+                      <button key={mode} onClick={()=>setPayMode(mode)}
+                        style={{flex:1,padding:'10px 8px',borderRadius:8,cursor:'pointer',fontSize:13,fontWeight:500,
+                          border:payMode===mode?'2px solid var(--accent)':'1px solid var(--border)',
+                          background:payMode===mode?'var(--accent-bg)':'var(--surface)',
+                          color:payMode===mode?'var(--accent)':'var(--text2)'}}>
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* UPI Fields */}
+                {payMode==='upi' && (
+                  <div style={{marginBottom:14}}>
+                    <label className="form-label">UPI ID *</label>
+                    <input className="form-input" placeholder="e.g. ayush@okaxis"
+                      value={upiId} onChange={e=>setUpiId(e.target.value)}/>
+                    <div style={{fontSize:12,color:'var(--text3)',marginTop:4}}>
+                      College UPI: <strong>collegeerp@sbi</strong>
+                    </div>
+                  </div>
+                )}
+
+                {/* Card Fields */}
+                {payMode==='card' && (
+                  <div style={{display:'flex',flexDirection:'column',gap:12,marginBottom:14}}>
+                    <div>
+                      <label className="form-label">Card Number *</label>
+                      <input className="form-input" placeholder="1234 5678 9012 3456" maxLength={19}
+                        value={cardNo} onChange={e=>setCardNo(e.target.value.replace(/\D/g,'').replace(/(.{4})/g,'$1 ').trim())}/>
+                    </div>
+                    <div>
+                      <label className="form-label">Cardholder Name *</label>
+                      <input className="form-input" placeholder="Ayush Kumar"
+                        value={cardName} onChange={e=>setCardName(e.target.value)}/>
+                    </div>
+                    <div className="grid-2" style={{gap:12}}>
+                      <div>
+                        <label className="form-label">Expiry *</label>
+                        <input className="form-input" placeholder="MM/YY" maxLength={5}
+                          value={cardExp} onChange={e=>setCardExp(e.target.value)}/>
+                      </div>
+                      <div>
+                        <label className="form-label">CVV *</label>
+                        <input className="form-input" placeholder="123" maxLength={3} type="password"
+                          value={cardCvv} onChange={e=>setCardCvv(e.target.value)}/>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Net Banking */}
+                {payMode==='netbanking' && (
+                  <div style={{marginBottom:14}}>
+                    <label className="form-label">Bank Select Karo</label>
+                    <select className="form-input">
+                      {['SBI','HDFC Bank','ICICI Bank','Axis Bank','PNB','Bank of Baroda','Canara Bank'].map(b=>(
+                        <option key={b}>{b}</option>
+                      ))}
+                    </select>
+                    <div style={{fontSize:12,color:'var(--text3)',marginTop:4}}>
+                      Aapko bank ke portal pe redirect kiya jayega
+                    </div>
+                  </div>
+                )}
+
+                {/* Security Note */}
+                <div style={{padding:'10px 14px',background:'var(--surface2)',borderRadius:8,marginBottom:16}}>
+                  <div style={{fontSize:12,color:'var(--text3)'}}>
+                    🔒 Yeh payment secure hai — SSL encrypted
+                  </div>
+                </div>
+
+                <div className="modal-footer" style={{marginTop:0}}>
+                  <button className="btn btn-secondary" onClick={()=>setPayModal(false)}>Cancel</button>
+                  <button onClick={handlePayment}
+                    style={{padding:'10px 24px',background:'var(--accent)',color:'white',border:'none',
+                      borderRadius:9,fontSize:15,fontWeight:700,cursor:'pointer'}}>
+                    💳 Pay ₹{payAmount?Number(payAmount).toLocaleString():'—'}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── RECEIPT MODAL ── */}
+      {receiptModal && (
+        <div className="modal-overlay" onClick={()=>setReceiptModal(null)}>
+          <div className="modal" style={{width:440}} onClick={e=>e.stopPropagation()}>
+            <div style={{textAlign:'center',padding:'10px 0 20px'}}>
+              <div style={{fontSize:48,marginBottom:8}}>🎉</div>
+              <div style={{fontSize:20,fontWeight:800,color:'var(--green)'}}>Payment Successful!</div>
+              <div style={{fontSize:13,color:'var(--text3)',marginTop:4}}>Receipt aapki email pe bhi bhej di gayi hai 📧</div>
+            </div>
+
+            {/* Receipt */}
+            <div style={{background:'var(--bg)',border:'2px dashed var(--border)',borderRadius:12,padding:'20px'}}>
+              <div style={{textAlign:'center',marginBottom:16}}>
+                <div style={{fontSize:16,fontWeight:800,color:'var(--accent)'}}>🎓 EduERP</div>
+                <div style={{fontSize:12,color:'var(--text3)'}}>Fee Payment Receipt</div>
+              </div>
+              {[
+                {label:'Receipt No',   value:receiptModal.receipt},
+                {label:'Student Name', value:feeData.name},
+                {label:'Roll No',      value:feeData.rollNo},
+                {label:'Semester',     value:feeData.semester},
+                {label:'Payment Date', value:receiptModal.date},
+                {label:'Amount Paid',  value:'₹'+receiptModal.amount.toLocaleString()},
+                {label:'Mode',         value:receiptModal.mode},
+                {label:'Total Paid',   value:'₹'+feeData.paid.toLocaleString()},
+                {label:'Balance Due',  value:feeData.due>0?'₹'+feeData.due.toLocaleString():'Nil ✅'},
+              ].map(item=>(
+                <div key={item.label} style={{display:'flex',justifyContent:'space-between',
+                  padding:'7px 0',borderBottom:'1px dashed var(--border)'}}>
+                  <span style={{fontSize:13,color:'var(--text3)'}}>{item.label}</span>
+                  <span style={{fontSize:13,fontWeight:600}}>{item.value}</span>
+                </div>
+              ))}
+              <div style={{marginTop:14,padding:'10px',background:'var(--green-bg)',borderRadius:8,
+                textAlign:'center',color:'var(--green)',fontWeight:600,fontSize:13}}>
+                ✅ Payment Verified & Confirmed
+              </div>
+            </div>
+
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={()=>setReceiptModal(null)}>Close</button>
+              <button onClick={()=>window.print()}
+                style={{padding:'8px 20px',background:'var(--accent)',color:'white',border:'none',
+                  borderRadius:8,cursor:'pointer',fontWeight:600,fontSize:14}}>
+                🖨️ Print Receipt
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
