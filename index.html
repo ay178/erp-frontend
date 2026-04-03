@@ -2679,6 +2679,60 @@ function AnalyticsPage() {
 // ═══════════════════════════════════════════════════════════════════
 // 💳 FEE MANAGEMENT — Admin Page
 // ═══════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
+// 🌐 GLOBAL PAYMENT STORE — Student se Admin tak sync
+// ═══════════════════════════════════════════════════════════════
+const GLOBAL_FEE_STORE = {
+  _listeners: [],
+  _data: JSON.parse(localStorage.getItem('erp_fee_data') || 'null') || {
+    CS2023001: { name:'Arjun Mehta',  rollNo:'CS2023001', branch:'CS', sem:'4th', total:85000, paid:42500, due:42500, status:'partial', payments:[] },
+    CS2023002: { name:'Priya Sharma', rollNo:'CS2023002', branch:'CS', sem:'4th', total:85000, paid:60000, due:25000, status:'partial', payments:[] },
+    CS2023003: { name:'Rahul Verma',  rollNo:'CS2023003', branch:'CS', sem:'4th', total:85000, paid:0,     due:85000, status:'unpaid',  payments:[] },
+    CS2023004: { name:'Sneha Patel',  rollNo:'CS2023004', branch:'CS', sem:'4th', total:85000, paid:85000, due:0,     status:'paid',    payments:[] },
+    IT2023001: { name:'Kavya Nair',   rollNo:'IT2023001', branch:'IT', sem:'2nd', total:80000, paid:40000, due:40000, status:'partial', payments:[] },
+    IT2023002: { name:'Rohan Das',    rollNo:'IT2023002', branch:'IT', sem:'2nd', total:80000, paid:80000, due:0,     status:'paid',    payments:[] },
+    ME2023001: { name:'Ananya Iyer',  rollNo:'ME2023001', branch:'ME', sem:'6th', total:75000, paid:0,     due:75000, status:'overdue', payments:[] },
+    CS2023005: { name:'Vikram Rao',   rollNo:'CS2023005', branch:'CS', sem:'4th', total:85000, paid:85000, due:0,     status:'paid',    payments:[] },
+  },
+
+  subscribe(fn) { this._listeners.push(fn); return () => { this._listeners = this._listeners.filter(l=>l!==fn); }; },
+  notify() { this._listeners.forEach(fn=>fn(this._data)); localStorage.setItem('erp_fee_data', JSON.stringify(this._data)); },
+
+  getAll() { return Object.values(this._data); },
+
+  getByRollNo(rollNo) { return this._data[rollNo] || null; },
+
+  recordPayment(rollNo, amount, mode, receipt, date) {
+    if (!this._data[rollNo]) return;
+    const student = this._data[rollNo];
+    const newPaid   = Math.min(student.paid + amount, student.total);
+    const newDue    = student.total - newPaid;
+    const newStatus = newDue === 0 ? 'paid' : newPaid > 0 ? 'partial' : 'unpaid';
+    this._data[rollNo] = {
+      ...student,
+      paid: newPaid,
+      due: newDue,
+      status: newStatus,
+      payments: [{ date, amount, mode, receipt, status:'paid' }, ...(student.payments||[])],
+    };
+    this.notify();
+  },
+
+  adminRecordPayment(rollNo, amount) {
+    this.recordPayment(rollNo, amount, 'Cash (Admin)', 'ADM'+Date.now().toString().slice(-6), new Date().toISOString().split('T')[0]);
+  },
+};
+
+// Use localStorage event for cross-tab sync
+window.addEventListener('storage', (e) => {
+  if (e.key === 'erp_fee_data' && e.newValue) {
+    try {
+      GLOBAL_FEE_STORE._data = JSON.parse(e.newValue);
+      GLOBAL_FEE_STORE._listeners.forEach(fn=>fn(GLOBAL_FEE_STORE._data));
+    } catch(err) {}
+  }
+});
+
 const FEE_DATA_INIT = [
   {id:1, name:'Arjun Mehta',    rollNo:'CS2023001', branch:'CS', sem:'4th', total:85000, paid:85000, due:0,     dueDate:'2025-03-31', status:'paid'},
   {id:2, name:'Priya Sharma',   rollNo:'CS2023002', branch:'CS', sem:'4th', total:85000, paid:60000, due:25000, dueDate:'2025-03-31', status:'partial'},
@@ -2691,7 +2745,7 @@ const FEE_DATA_INIT = [
 ];
 
 function FeeMgmtPage() {
-  const [fees, setFees]         = useState(FEE_DATA_INIT);
+  const [fees, setFees]         = useState(()=>GLOBAL_FEE_STORE.getAll());
   const [search, setSearch]     = useState('');
   const [filter, setFilter]     = useState('all');
   const [modal, setModal]       = useState(null);
@@ -2699,8 +2753,24 @@ function FeeMgmtPage() {
   const [payAmt, setPayAmt]     = useState('');
   const [toast, setToast]       = useState('');
   const [emailStatus, setEmailStatus] = useState('');
+  const [newPaymentAlert, setNewPaymentAlert] = useState(null);
 
-  const showToast = (msg) => { setToast(msg); setTimeout(()=>setToast(''),3000); };
+  // Global store subscribe — jab student pay kare tab auto update
+  useEffect(() => {
+    const unsub = GLOBAL_FEE_STORE.subscribe((data) => {
+      const newFees = Object.values(data);
+      setFees(newFees);
+      // New payment alert dhundo
+      const latestPayment = newFees.flatMap(f=>(f.payments||[]).map(p=>({...p, studentName:f.name, rollNo:f.rollNo}))).sort((a,b)=>new Date(b.date)-new Date(a.date))[0];
+      if (latestPayment && latestPayment.mode !== 'Cash (Admin)') {
+        setNewPaymentAlert(latestPayment);
+        setTimeout(()=>setNewPaymentAlert(null), 8000);
+      }
+    });
+    return unsub;
+  }, []);
+
+  const showToast = (msg) => { setToast(msg); setTimeout(()=>setToast(''),3500); };
 
   const totalFee     = fees.reduce((a,b)=>a+b.total,0);
   const totalPaid    = fees.reduce((a,b)=>a+b.paid,0);
@@ -2717,23 +2787,23 @@ function FeeMgmtPage() {
   const recordPayment = () => {
     if (!payAmt || isNaN(payAmt)) return alert('Valid amount dalo!');
     const amount = parseInt(payAmt);
-    setFees(prev => prev.map(f => {
-      if (f.id !== selected.id) return f;
-      const newPaid = Math.min(f.paid + amount, f.total);
-      const newDue  = f.total - newPaid;
-      const newStatus = newDue === 0 ? 'paid' : newPaid > 0 ? 'partial' : 'unpaid';
-      return { ...f, paid: newPaid, due: newDue, status: newStatus };
-    }));
-    showToast('✅ Payment recorded — Rs.' + amount.toLocaleString());
+    // Global store mein update karo
+    GLOBAL_FEE_STORE.adminRecordPayment(selected.rollNo, amount);
+    showToast('✅ Payment recorded — ₹' + amount.toLocaleString() + ' — ' + selected.name);
     setModal(null); setPayAmt('');
   };
 
-  const sendReminder = (student) => {
+  const sendReminder = async (student) => {
     setEmailStatus('sending');
-    setTimeout(() => {
-      setEmailStatus('');
-      showToast('📧 Reminder email bhej diya — ' + student.name + ' ko!');
-    }, 1500);
+    try {
+      await fetch(API_URL + '/api/fees/reminder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (localStorage.getItem('erp_token')||'') },
+        body: JSON.stringify({ studentName: student.name, email: student.email || '', rollNo: student.rollNo, dueAmount: student.due, dueDate: student.dueDate })
+      });
+    } catch(e) {}
+    setEmailStatus('');
+    showToast('📧 Reminder email bhej diya — ' + student.name + ' ko!');
   };
 
   const statusColor = {
@@ -2745,10 +2815,39 @@ function FeeMgmtPage() {
 
   return (
     <div>
+      {/* Toast */}
       {toast && (
         <div style={{position:'fixed',top:20,right:20,zIndex:999,background:'var(--text)',color:'var(--surface)',
           padding:'12px 20px',borderRadius:10,fontSize:14,fontWeight:500,boxShadow:'0 4px 16px rgba(0,0,0,0.18)'}}>
           {toast}
+        </div>
+      )}
+
+      {/* 🔔 New Payment Alert — Student ne pay kiya! */}
+      {newPaymentAlert && (
+        <div style={{position:'fixed',top:20,right:20,zIndex:1000,background:'white',
+          border:'2px solid var(--green)',borderRadius:14,padding:'16px 20px',
+          boxShadow:'0 8px 32px rgba(0,0,0,0.15)',maxWidth:340,animation:'slideIn 0.3s ease'}}>
+          <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:8}}>
+            <div style={{width:36,height:36,borderRadius:'50%',background:'var(--green-bg)',
+              display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,flexShrink:0}}>💰</div>
+            <div>
+              <div style={{fontSize:14,fontWeight:700,color:'var(--green)'}}>New Payment Received!</div>
+              <div style={{fontSize:12,color:'var(--text3)'}}>Student portal se payment aayi</div>
+            </div>
+            <button onClick={()=>setNewPaymentAlert(null)}
+              style={{marginLeft:'auto',border:'none',background:'none',cursor:'pointer',color:'var(--text3)',fontSize:18}}>×</button>
+          </div>
+          <div style={{background:'var(--green-bg)',borderRadius:9,padding:'10px 14px'}}>
+            <div style={{fontSize:13,fontWeight:600,color:'var(--text)'}}>{newPaymentAlert.studentName}</div>
+            <div style={{fontSize:12,color:'var(--text3)'}}>{newPaymentAlert.rollNo}</div>
+            <div style={{fontSize:20,fontWeight:800,color:'var(--green)',marginTop:4}}>
+              ₹{newPaymentAlert.amount?.toLocaleString()}
+            </div>
+            <div style={{fontSize:11,color:'var(--text3)',marginTop:2}}>
+              {newPaymentAlert.mode} · {newPaymentAlert.receipt}
+            </div>
+          </div>
         </div>
       )}
 
@@ -2875,15 +2974,18 @@ function FeeMgmtPage() {
 // 💳 FEE DETAILS — Student View
 // ═══════════════════════════════════════════════════════════════════
 function FeeDetailsPage({ user }) {
+  const myRollNo = 'CS2023001'; // Real system mein user.rollNo hoga
+  const storedFee = GLOBAL_FEE_STORE.getByRollNo(myRollNo);
+
   const [feeData, setFeeData] = useState({
-    name: user?.name || 'Student',
-    rollNo: 'CS2023001',
-    semester: '4th Semester',
+    name: user?.name || storedFee?.name || 'Student',
+    rollNo: myRollNo,
+    semester: storedFee?.sem ? storedFee.sem+' Semester' : '4th Semester',
     branch: 'Computer Science',
     academicYear: '2024-25',
-    totalFee: 85000,
-    paid: 42500,
-    due: 42500,
+    totalFee: storedFee?.total || 85000,
+    paid: storedFee?.paid || 42500,
+    due: storedFee?.due || 42500,
     dueDate: '30 April 2025',
     status: 'pending',
     breakdown: [
@@ -2894,7 +2996,7 @@ function FeeDetailsPage({ user }) {
       { label: 'Exam Fee',       amount: 7000  },
       { label: 'Development Fee',amount: 10000 },
     ],
-    payments: [
+    payments: storedFee?.payments?.length ? storedFee.payments : [
       { date:'2025-01-10', amount:42500, mode:'Online', receipt:'RCP2025001', status:'paid' },
     ]
   });
@@ -2950,6 +3052,15 @@ function FeeDetailsPage({ user }) {
       status: newDue <= 0 ? 'paid' : 'pending',
       payments: [newPayment, ...p.payments],
     }));
+
+    // 🌐 Global store mein update karo — Admin ko dikhe
+    GLOBAL_FEE_STORE.recordPayment(
+      feeData.rollNo,
+      +payAmount,
+      newPayment.mode,
+      receiptNo,
+      newPayment.date
+    );
 
     setProcessing(false);
     setPayModal(false);
