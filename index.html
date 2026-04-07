@@ -2037,6 +2037,37 @@ function BranchManagementPage() {
   const [activeTab, setActiveTab]           = useState('students');
   const [branchStudents, setBranchStudents] = useState(BRANCH_STUDENTS_INIT);
   const [branchTeachers, setBranchTeachers] = useState(BRANCH_TEACHERS_INIT);
+  const [dataLoading, setDataLoading]       = useState(true);
+
+  // MongoDB se saare students load karo — page khulte hi
+  useEffect(() => {
+    const loadAllStudents = async () => {
+      setDataLoading(true);
+      try {
+        const allStudents = await api('/api/students', 'GET', null, token);
+        // Branch wise group karo
+        const grouped = {};
+        allStudents.forEach(s => {
+          const br = s.branch || 'CS';
+          if (!grouped[br]) grouped[br] = [];
+          grouped[br].push(s);
+        });
+        // Default data ke saath merge karo
+        setBranchStudents(prev => {
+          const merged = { ...prev };
+          Object.keys(grouped).forEach(br => {
+            merged[br] = grouped[br];
+          });
+          return merged;
+        });
+      } catch(e) {
+        console.log('Students load failed — using local data:', e.message);
+      } finally {
+        setDataLoading(false);
+      }
+    };
+    loadAllStudents();
+  }, []);
   const [modal, setModal]                   = useState(null);
   const [deleteInfo, setDeleteInfo]         = useState(null);
   const [search, setSearch]                 = useState('');
@@ -2050,6 +2081,13 @@ function BranchManagementPage() {
 
   // ── Branch List View ──
   if (!selectedBranch) {
+    if (dataLoading) return (
+      <div style={{textAlign:'center',padding:'60px 0'}}>
+        <div style={{fontSize:36,marginBottom:16}}>⏳</div>
+        <div style={{fontSize:16,fontWeight:600,color:'var(--text)'}}>Students load ho rahe hain...</div>
+        <div style={{fontSize:13,color:'var(--text3)',marginTop:8}}>MongoDB se data aa raha hai</div>
+      </div>
+    );
     return (
       <div>
         <div style={{marginBottom:20}}>
@@ -2121,6 +2159,21 @@ function BranchManagementPage() {
       </div>
     );
   }
+
+  // ── Refresh function ──
+  const refreshStudents = async () => {
+    setDataLoading(true);
+    try {
+      const allStudents = await api('/api/students?branch='+selectedBranch?.code, 'GET', null, token);
+      if (allStudents && selectedBranch) {
+        setBranchStudents(p=>({...p,[selectedBranch.code]:allStudents}));
+      }
+    } catch(e) {
+      console.log('Refresh failed:', e.message);
+    } finally {
+      setDataLoading(false);
+    }
+  };
 
   // ── Branch Detail View ──
   const branch = selectedBranch;
@@ -2289,6 +2342,10 @@ function BranchManagementPage() {
             placeholder={activeTab==='students'?'Student naam ya roll no…':'Teacher naam ya email…'}
             value={search} onChange={e=>setSearch(e.target.value)}/>
         </div>
+        {/* Refresh Button */}
+        <button className="btn btn-secondary btn-sm" onClick={refreshStudents} title="MongoDB se fresh data load karo">
+          🔄 Refresh
+        </button>
         {/* Add Button */}
         <button className="btn btn-primary"
           style={{background:branch.color}}
