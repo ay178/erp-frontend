@@ -3769,7 +3769,7 @@ function TeacherChatPage({ user }) {
       });
       // Unread badge update
       setUnreadMap(prev => {
-        if (msg.senderId !== myId && selected?.\_id !== msg.senderId) {
+        if (msg.senderId !== myId && selected?._id !== msg.senderId) {
           return {...prev, [msg.senderId]: (prev[msg.senderId]||0)+1};
         }
         return prev;
